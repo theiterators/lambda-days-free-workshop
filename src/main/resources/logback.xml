@@ -1,0 +1,22 @@
+<configuration>
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%magenta(%d{ISO8601}) %highlight(%-5level) %green(%logger{36}) [%thread]: %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <logger name="akka" level="INFO" />
+    <logger name="akka.event.slf4j" level ="WARN" />
+    <logger name="slick" level="INFO"/>
+    <logger name="slick.session" level="INFO"/>
+    <logger name="slick.jdbc" level="DEBUG"/>
+    <logger name="com.zaxxer.hikari.HikariConfig" level="WARN"/>
+    <logger name="com.zaxxer.hikari.pool.PoolUtilities" level="WARN"/>
+    <logger name="com.zaxxer.hikari.HikariDataSource" level="WARN"/>
+    <logger name="com.zaxxer.hikari.pool.HikariPool" level="WARN"/>
+    <logger name="pl.iterators.forum.utils.db.PostgresDriver" level="WARN"/>
+
+    <root level="debug">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>
