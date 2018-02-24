@@ -6,6 +6,7 @@ import java.util.Locale
 import akka.actor.ActorSystem
 import akka.event.Logging
 import akka.stream.Materializer
+import pl.iterators.forum.services.AuthenticationService
 import pl.iterators.forum.utils.crypto.Crypto
 
 import scala.concurrent.ExecutionContext
@@ -55,6 +56,8 @@ trait Server extends Setup { self =>
   val confirmationLinkTemplate = mailingConfig.getString("confirmationLinkTemplate")
   val defaultLanguage          = Locale.forLanguageTag(mailingConfig.getString("defaultLanguage"))
 
+  def authenticationService = new AuthenticationService {}
+
   lazy val restInterface = new RestInterface {
     override implicit val executor: ExecutionContext = self.executor
 
@@ -63,6 +66,8 @@ trait Server extends Setup { self =>
 
     override val accountService               = self.accountService
     override val accountRepositoryInterpreter = self.accountRepository
+
+    override val authenticationService = self.authenticationService
 
   }
 

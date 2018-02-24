@@ -10,13 +10,27 @@ import pl.iterators.forum.utils.db.WithId
 
 class AccountFixture {
   import AccountRepository._
-  import AccountFixture.ConfirmedAccountImpl
+  import AccountFixture._
 
   val accountInterpreter = new (AccountRepository ~> Id) {
     override def apply[A](fa: AccountRepository[A]) = fa match {
-      case Lookup(id) => if (id == existingAccount.id) Some(existingAccount) else if (id == adminAccount.id) Some(adminAccount) else None
+      case Lookup(id) =>
+        if (id == existingAccount.id) Some(existingAccount)
+        else if (id == adminAccount.id) Some(adminAccount)
+        else if (id == evilUser.id) Some(evilUser)
+        else if (id == unconfirmedUser.id) Some(unconfirmedUser)
+        else None
       case QueryEmail(email) =>
-        if (email == existingAccount.email) Some(existingAccount) else if (email == adminAccount.email) Some(adminAccount) else None
+        if (email == existingAccount.email) Some(existingAccount)
+        else if (email == adminAccount.email) Some(adminAccount)
+        else if (email == evilUser.email) Some(evilUser)
+        else if (email == unconfirmedUser.email) Some(unconfirmedUser)
+        else None
+      case QueryConfirmed(email) =>
+        if (email == existingAccount.email) Some(existingAccount)
+        else if (email == adminAccount.email) Some(adminAccount)
+        else if (email == evilUser.email) Some(evilUser)
+        else None
     }
   }
 
@@ -46,6 +60,24 @@ class AccountFixture {
                          isBanned = false)
   )
 
+  val evilUserPassword = "faf!e35f"
+  val evilUser: ConfirmedAccountWithId = WithId(
+    AccountId(666),
+    ConfirmedAccountImpl(Nick("Skeletor"),
+                         Email("evil_user@forum.com"),
+                         None,
+                         Crypto.encryptFunction(evilUserPassword),
+                         nowValue,
+                         isAdmin = false,
+                         isBanned = true)
+  )
+
+  val unconfirmedUserPassword = "ad343v !"
+  val unconfirmedUser: AccountWithId = WithId(
+    AccountId(324532),
+    AccountImpl(Email("wannabe@user.com"), None, Crypto.encryptFunction(evilUserPassword), nowValue)
+  )
+
 }
 
 object AccountFixture {
@@ -59,5 +91,16 @@ object AccountFixture {
       extends ConfirmedAccount {
     override def withPassword(newPassword: Crypto.Password) = this.copy(encryptedPassword = newPassword)
     override def withAbout(newAbout: Option[String])        = this.copy(about = newAbout)
+  }
+
+  case class AccountImpl(email: Email, about: Option[String], encryptedPassword: Crypto.Password, createdAt: OffsetDateTime)
+      extends Account {
+    override def withPassword(newPassword: Crypto.Password) = this.copy(encryptedPassword = newPassword)
+    override def withAbout(newAbout: Option[String])        = this.copy(about = newAbout)
+
+    override val nick        = None
+    override val isConfirmed = false
+    override val isAdmin     = false
+    override val isBanned    = false
   }
 }

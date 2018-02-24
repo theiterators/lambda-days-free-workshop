@@ -21,8 +21,9 @@ class AccountRepositoryDbInterpreter(db: Database)(implicit executionContext: Ex
   private val users = new Repository[Int @@ IdTag[Account], User, UsersTable](TableQuery[UsersTable])
 
   override def apply[A](fa: AccountRepository[A]): Future[A] = fa match {
-    case Lookup(id)        => db.run(lookup(id))
-    case QueryEmail(email) => db.run(queryEmail(email))
+    case Lookup(id)            => db.run(lookup(id))
+    case QueryEmail(email)     => db.run(queryEmail(email))
+    case QueryConfirmed(email) => db.run(queryConfirmed((email)))
   }
 
   final def apply[A](composite: AccountOperation[A]): Future[A] = composite foldMap this
@@ -30,8 +31,14 @@ class AccountRepositoryDbInterpreter(db: Database)(implicit executionContext: Ex
   def lookup(id: AccountId): DBIOAction[Option[AccountWithId], NoStream, Read]    = users.find(id)
   def queryEmail(email: Email): DBIOAction[Option[AccountWithId], NoStream, Read] = filterEmailC(email).result.headOption
 
+  def queryConfirmed(email: Email): DBIOAction[Option[ConfirmedAccountWithId], NoStream, Read] =
+    filterEmailConfirmedC(email).result.headOption.map(_.collect(collectConfirmed))
+
   private def filterEmail(email: Rep[Email]) = users.table.filter(_.email === email)
   private val filterEmailC                   = Compiled(filterEmail _)
+
+  private def filterEmailConfirmed(email: Rep[Email]) = filterEmail(email).filter(_.confirmed)
+  private val filterEmailConfirmedC                   = Compiled(filterEmailConfirmed _)
 
 }
 
@@ -92,6 +99,10 @@ object AccountRepositoryDbInterpreter extends TypeMappers {
     def createdAt         = column[OffsetDateTime]("created_at")
 
     override val model = (email, nick, encryptedPassword, about, isAdmin, banned, confirmed, createdAt) <> (User.tupled, User.unapply)
+  }
+
+  val collectConfirmed: PartialFunction[WithId[AccountId, User], WithId[AccountId, ConfirmedUser]] = {
+    case entity @ WithId(_, User(_, Some(nick), _, _, _, _, true, _)) => entity.transform(ConfirmedUser(_, nick))
   }
 
 }

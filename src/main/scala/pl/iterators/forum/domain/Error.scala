@@ -10,3 +10,7 @@ sealed abstract class AccountDbError extends AccountError
 case object EmailNotUnique           extends AccountDbError
 case object NickNotUnique            extends AccountDbError
 case object AccountNotExists         extends AccountDbError
+
+sealed abstract class AuthenticationError extends Error
+case object InvalidCredentials            extends AuthenticationError
+case object Banned                        extends AuthenticationError
