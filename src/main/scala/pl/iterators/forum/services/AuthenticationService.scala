@@ -2,6 +2,7 @@ package pl.iterators.forum.services
 
 import java.time.Duration
 
+import cats.data.OptionT
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories._
 import pl.iterators.forum.services.AuthenticationService.RefreshTokenRequest
@@ -24,9 +25,26 @@ trait AuthenticationService {
       .map(_.claims)
       .value
 
-  final def obtainRefreshToken(email: Email): RefreshTokenWithAccountOperation[Option[(RefreshToken, Duration)]] = ???
+  final def obtainRefreshToken(email: Email): RefreshTokenWithAccountOperation[Option[(RefreshToken, Duration)]] = {
+    import RefreshTokenOrAccount._
 
-  final def refreshClaims(refreshTokenRequest: RefreshTokenRequest): RefreshTokenWithAccountOperation[RefreshResponse] = ???
+    OptionT(queryAccount(email))
+      .filter(_.canLogin)
+      .map(_ => RefreshToken.generate(email))
+      .semiflatMap(storeToken(_).map((_, refreshTokenTtl)))
+      .value
+  }
+
+  final def refreshClaims(refreshTokenRequest: RefreshTokenRequest): RefreshTokenWithAccountOperation[RefreshResponse] = {
+    import RefreshTokenOrAccount._
+
+    queryToken(refreshTokenRequest.email, refreshTokenRequest.refreshToken)
+      .toEither(ifNone = InvalidToken)
+      .subflatMap(refreshToken => Either.cond(test = !refreshToken.isExpired(refreshTokenTtl), refreshToken, TokenExpired))
+      .flatMap(_ => queryConfirmedAccount(refreshTokenRequest.email).toEither[TokenError](ifNone = InvalidToken))
+      .subflatMap(account => Either.cond(test = account.canLogin, account.claims, InvalidToken))
+      .value
+  }
 
 }
 

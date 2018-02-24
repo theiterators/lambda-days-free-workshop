@@ -1,6 +1,7 @@
 package pl.iterators.forum.fixtures
 
 import java.time.Duration
+import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import cats.{Id, ~>}
 import pl.iterators.forum.domain._
@@ -35,15 +36,28 @@ trait RefreshTokenFixture extends TokenFixture[TokenType.Refresh] { accounts: Ac
 }
 
 abstract class TokenRepositoryInMemInterpreter[T <: TokenType] {
+  private val lock = new ReentrantReadWriteLock()
+  private def withWriteLock[A](a: => A) = {
+    val writeLock = lock.writeLock()
+    writeLock.lock()
+    try { a } finally { writeLock.unlock() }
+  }
+  private def withReadLock[A](a: => A) = {
+    val readLock = lock.readLock()
+    readLock.lock()
+    try { a } finally { readLock.unlock() }
+  }
   private val storage: ArrayBuffer[Token[T]] = ArrayBuffer.empty
 
-  final def store(token: Token[T]) = {
+  final def store(token: Token[T]) = withWriteLock {
     val i = storage.length
     storage += token
     WithId(i, token)
   }
-  final def find(email: Email) = storage.iterator.zipWithIndex.map(ai => WithId(ai._2, ai._1)).filter(_.email == email).toList
-  final def query(email: Email, token: String): Option[WithId[Int, Token[T]]] = {
+  final def find(email: Email) = withReadLock {
+    storage.iterator.zipWithIndex.map(ai => WithId(ai._2, ai._1)).filter(_.email == email).toList
+  }
+  final def query(email: Email, token: String): Option[WithId[Int, Token[T]]] = withReadLock {
     val i = storage.indexWhere(t => t.email == email && t.value == token)
     if (i == -1) None else Some(WithId(i, storage(i)))
   }
