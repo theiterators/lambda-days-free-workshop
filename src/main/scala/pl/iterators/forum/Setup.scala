@@ -3,7 +3,7 @@ package pl.iterators.forum
 import com.typesafe.config.ConfigFactory
 import pl.iterators.forum.domain.{Email, EmailAddress, Messages}
 import pl.iterators.forum.domain.PasswordPolicies._
-import pl.iterators.forum.repositories.interpreters.{AccountRepositoryDbInterpreter, AccountRepositoryInterpreter}
+import pl.iterators.forum.repositories.interpreters._
 import pl.iterators.forum.services.AccountService
 import pl.iterators.forum.utils.db.PostgresDriver.api._
 
@@ -36,5 +36,7 @@ trait Setup { self =>
 
   def accountRepository: AccountRepositoryInterpreter = new AccountRepositoryDbInterpreter(db)
   def accountService                                  = new AccountService {}
+
+  def refreshTokenRepository: RefreshTokenRepositoryInterpreter = new RefreshTokenRepositoryDbInterpreter(db)
 
 }

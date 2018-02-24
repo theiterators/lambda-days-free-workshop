@@ -14,3 +14,7 @@ case object AccountNotExists         extends AccountDbError
 sealed abstract class AuthenticationError extends Error
 case object InvalidCredentials            extends AuthenticationError
 case object Banned                        extends AuthenticationError
+
+sealed abstract class TokenError extends Error
+case object InvalidToken         extends TokenError
+case object TokenExpired         extends TokenError

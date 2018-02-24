@@ -56,7 +56,9 @@ trait Server extends Setup { self =>
   val confirmationLinkTemplate = mailingConfig.getString("confirmationLinkTemplate")
   val defaultLanguage          = Locale.forLanguageTag(mailingConfig.getString("defaultLanguage"))
 
-  def authenticationService = new AuthenticationService {}
+  def authenticationService = new AuthenticationService {
+    override val refreshTokenTtl = self.refreshTokenTtl
+  }
 
   lazy val restInterface = new RestInterface {
     override implicit val executor: ExecutionContext = self.executor
@@ -67,8 +69,8 @@ trait Server extends Setup { self =>
     override val accountService               = self.accountService
     override val accountRepositoryInterpreter = self.accountRepository
 
-    override val authenticationService = self.authenticationService
-
+    override val authenticationService   = self.authenticationService
+    override val refreshTokenInterpreter = self.refreshTokenRepository
   }
 
 }

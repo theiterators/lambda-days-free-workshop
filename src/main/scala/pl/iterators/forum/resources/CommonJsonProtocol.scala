@@ -1,5 +1,7 @@
 package pl.iterators.forum.resources
 
+import java.time.Duration
+
 import akka.http.scaladsl.model.Uri
 import pl.iterators.forum.domain._
 import pl.iterators.forum.domain.tags._
@@ -8,6 +10,7 @@ import pl.iterators.forum.utils.tag._
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
 
+import scala.language.existentials
 import scala.util.Try
 
 trait CommonJsonProtocol {
@@ -75,6 +78,11 @@ trait CommonJsonProtocol {
         (__ \ "id").write[A] and
         (__ \ "uri").write[Uri]
     )(resource => (resource, resource.id, path(resource.id)))
+
+  implicit val tokenWrites: Writes[(Token[_ <: TokenType], Duration)] = (o: (Token[_ <: TokenType], Duration)) => {
+    val (token, ttl) = o
+    JsObject(Seq("token" -> JsString(token.value), "expiresAt" -> JsString(token.expiresAtInstant(ttl).toString)))
+  }
 
 }
 
