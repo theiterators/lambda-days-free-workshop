@@ -35,7 +35,9 @@ trait Setup { self =>
   implicit def executor: ExecutionContext
 
   def accountRepository: AccountRepositoryInterpreter = new AccountRepositoryDbInterpreter(db)
-  def accountService                                  = new AccountService {}
+  def accountService = new AccountService {
+    override val passwordPolicy = self.passwordPolicy
+  }
 
   def refreshTokenRepository: RefreshTokenRepositoryInterpreter = new RefreshTokenRepositoryDbInterpreter(db)
 

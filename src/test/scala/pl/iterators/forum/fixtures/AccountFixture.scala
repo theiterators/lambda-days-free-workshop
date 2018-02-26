@@ -14,23 +14,40 @@ class AccountFixture {
 
   val accountInterpreter = new (AccountRepository ~> Id) {
     override def apply[A](fa: AccountRepository[A]) = fa match {
-      case Lookup(id) =>
-        if (id == existingAccount.id) Some(existingAccount)
-        else if (id == adminAccount.id) Some(adminAccount)
-        else if (id == evilUser.id) Some(evilUser)
-        else if (id == unconfirmedUser.id) Some(unconfirmedUser)
-        else None
-      case QueryEmail(email) =>
-        if (email == existingAccount.email) Some(existingAccount)
-        else if (email == adminAccount.email) Some(adminAccount)
-        else if (email == evilUser.email) Some(evilUser)
-        else if (email == unconfirmedUser.email) Some(unconfirmedUser)
-        else None
-      case QueryConfirmed(email) =>
-        if (email == existingAccount.email) Some(existingAccount)
-        else if (email == adminAccount.email) Some(adminAccount)
-        else if (email == evilUser.email) Some(evilUser)
-        else None
+      case Lookup(id)            => lookup(id)
+      case QueryEmail(email)     => queryEmail(email)
+      case QueryConfirmed(email) => queryConfirmed(email)
+      case QueryNick(nick)       => queryNick(nick)
+      case Exists(nick)          => queryNick(nick).isDefined
+      case Store(email, password, isAdmin) =>
+        if (queryEmail(email).isDefined) Left(EmailNotUnique)
+        else
+          Right(
+            WithId(
+              AccountId(1),
+              AccountImpl(email, None, password, nowValue, isAdmin = isAdmin)
+            ))
+      case Update(id, f) => lookup(id).fold[StoreResult](Left(AccountNotExists))(account => Right(account.transform(f)))
+    }
+    private def queryNick(nick: Nick) = {
+      if (nick == existingAccount.confirmedNick) Some(existingAccount)
+      else if (nick == adminAccount.confirmedNick) Some(adminAccount)
+      else if (nick == evilUser.confirmedNick) Some(evilUser)
+      else None
+    }
+    private def queryConfirmed(email: Email) = {
+      if (email == existingAccount.email) Some(existingAccount)
+      else if (email == adminAccount.email) Some(adminAccount)
+      else if (email == evilUser.email) Some(evilUser)
+      else None
+    }
+    private def queryEmail(email: Email) = queryConfirmed(email).orElse(if (email == unconfirmedUser.email) Some(unconfirmedUser) else None)
+    private def lookup(id: AccountId) = {
+      if (id == existingAccount.id) Some(existingAccount)
+      else if (id == adminAccount.id) Some(adminAccount)
+      else if (id == evilUser.id) Some(evilUser)
+      else if (id == unconfirmedUser.id) Some(unconfirmedUser)
+      else None
     }
   }
 
@@ -93,14 +110,17 @@ object AccountFixture {
     override def withAbout(newAbout: Option[String])        = this.copy(about = newAbout)
   }
 
-  case class AccountImpl(email: Email, about: Option[String], encryptedPassword: Crypto.Password, createdAt: OffsetDateTime)
+  case class AccountImpl(email: Email,
+                         about: Option[String],
+                         encryptedPassword: Crypto.Password,
+                         createdAt: OffsetDateTime,
+                         isAdmin: Boolean = false)
       extends Account {
     override def withPassword(newPassword: Crypto.Password) = this.copy(encryptedPassword = newPassword)
     override def withAbout(newAbout: Option[String])        = this.copy(about = newAbout)
 
     override val nick        = None
     override val isConfirmed = false
-    override val isAdmin     = false
     override val isBanned    = false
   }
 }

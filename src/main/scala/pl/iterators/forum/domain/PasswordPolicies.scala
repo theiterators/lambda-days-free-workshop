@@ -2,7 +2,6 @@ package pl.iterators.forum.domain
 
 object PasswordPolicies {
 
-  case object PasswordTooWeak
   type Validation = PasswordPlain => Either[PasswordTooWeak.type, String]
 
   val mustContainLetter: Validation = password => if (password.exists(_.isLetter)) Right(password) else Left(PasswordTooWeak)
