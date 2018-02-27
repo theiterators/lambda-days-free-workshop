@@ -1,10 +1,10 @@
 package pl.iterators.forum.services
 
 import cats.data.EitherT
+import pl.iterators.forum.utils.free.syntax._
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.AccountRepository.StoreResult
 import pl.iterators.forum.repositories._
-
 import pl.iterators.forum.utils.Change
 import pl.iterators.forum.utils.crypto.Crypto
 
@@ -16,8 +16,18 @@ trait AccountService {
   def queryEmail(email: Email): AccountOperation[Option[AccountWithId]] = AccountRepository.queryEmail(email)
   def lookup(id: AccountId): AccountOperation[Option[AccountWithId]]    = AccountRepository.lookup(id)
 
-  def createRegular(accountCreateRequest: AccountCreateRequest): AccountOperation[Either[AccountError, AccountWithId]] =
-    store(accountCreateRequest, admin = false)
+  def createRegular(
+      accountCreateRequest: AccountCreateRequest): ConfirmationTokenWithAccountOperation[Either[AccountError, AccountWithId]] = {
+    import ConfirmationTokenOrAccount._
+
+    val storeAccountAndConfirmationToken = for {
+      account <- EitherT(store(accountCreateRequest, admin = false).as[ConfirmationTokenOrAccount])
+      confirmationToken = ConfirmationToken.generate(account.email)
+      _ <- storeToken(confirmationToken).toEitherT[AccountError]
+    } yield account
+
+    storeAccountAndConfirmationToken.value
+  }
   def createAdmin(adminAccountCreateRequest: AdminAccountCreateRequest): AccountOperation[Either[AccountError, AccountWithId]] =
     store(adminAccountCreateRequest.asAccountCreateRequest, admin = true)
   private def store(accountCreateRequest: AccountCreateRequest, admin: Boolean): AccountOperation[Either[AccountError, AccountWithId]] = {

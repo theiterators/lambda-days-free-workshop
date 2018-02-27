@@ -39,6 +39,7 @@ object AccountsResource {
 trait AccountsResource extends Resource with AccountsResource.AccountsProtocol with LanguageSupport {
   def accountService: AccountService
   def accountRepositoryInterpreter: AccountRepositoryInterpreter
+  def confirmationTokenInterpreter: ConfirmationTokenRepositoryInterpreter
 
   import cats.instances.future._
 
@@ -83,7 +84,7 @@ trait AccountsResource extends Resource with AccountsResource.AccountsProtocol w
 
   private def runCreateAccount(accountCreateRequest: AccountCreateRequest) =
     accountService
-      .createRegular(accountCreateRequest) foldMap accountRepositoryInterpreter
+      .createRegular(accountCreateRequest) foldMap (accountRepositoryInterpreter or confirmationTokenInterpreter)
   protected val createAccount: Route = (post & entity(as[AccountCreateRequest])) { accountCreateRequest =>
     onSuccess(runCreateAccount(accountCreateRequest)) {
       case Left(error)          => complete(Conflict -> error)

@@ -69,8 +69,9 @@ trait Server extends Setup { self =>
     override val accountService               = self.accountService
     override val accountRepositoryInterpreter = self.accountRepository
 
-    override val authenticationService   = self.authenticationService
-    override val refreshTokenInterpreter = self.refreshTokenRepository
+    override val authenticationService        = self.authenticationService
+    override val refreshTokenInterpreter      = self.refreshTokenRepository
+    override val confirmationTokenInterpreter = self.confirmationTokenRepository
   }
 
 }

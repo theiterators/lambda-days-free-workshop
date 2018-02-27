@@ -39,6 +39,7 @@ trait Setup { self =>
     override val passwordPolicy = self.passwordPolicy
   }
 
-  def refreshTokenRepository: RefreshTokenRepositoryInterpreter = new RefreshTokenRepositoryDbInterpreter(db)
+  def refreshTokenRepository: RefreshTokenRepositoryInterpreter           = new RefreshTokenRepositoryDbInterpreter(db)
+  def confirmationTokenRepository: ConfirmationTokenRepositoryInterpreter = new ConfirmationTokenRepositoryDbInterpreter(db)
 
 }

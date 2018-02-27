@@ -5,7 +5,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock
 
 import cats.{Id, ~>}
 import pl.iterators.forum.domain._
-import pl.iterators.forum.repositories.RefreshTokenRepository
+import pl.iterators.forum.repositories.{ConfirmationTokenRepository, RefreshTokenRepository}
 import pl.iterators.forum.utils.db.WithId
 
 import scala.collection.mutable.ArrayBuffer
@@ -33,6 +33,13 @@ trait RefreshTokenFixture extends TokenFixture[TokenType.Refresh] { accounts: Ac
   override final val tokenInterpreter                = new RefreshTokenRepositoryInMemInterpreter
 
   val refreshTokenOrAccountInterpreter = accountInterpreter or tokenInterpreter
+}
+
+trait ConfirmationTokenFixture extends TokenFixture[TokenType.Confirmation] { accounts: AccountFixture =>
+  override protected def generateToken(email: Email) = ConfirmationToken.generate(Email(email))
+  override final val tokenInterpreter                = new ConfirmationTokenRepositoryInMemInterpreter
+
+  val confirmationTokenOrAccountInterpreter = accountInterpreter or tokenInterpreter
 }
 
 abstract class TokenRepositoryInMemInterpreter[T <: TokenType] {
@@ -69,6 +76,18 @@ class RefreshTokenRepositoryInMemInterpreter
   import pl.iterators.forum.repositories.RefreshTokenRepository._
 
   override def apply[A](fa: RefreshTokenRepository[A]) = fa match {
+    case Query(email, token) => query(email, token).map(_.model)
+    case Store(refreshToken) => store(refreshToken)
+  }
+
+}
+
+class ConfirmationTokenRepositoryInMemInterpreter
+    extends TokenRepositoryInMemInterpreter[TokenType.Confirmation]
+    with (ConfirmationTokenRepository ~> Id) {
+  import pl.iterators.forum.repositories.ConfirmationTokenRepository._
+
+  override def apply[A](fa: ConfirmationTokenRepository[A]) = fa match {
     case Query(email, token) => query(email, token).map(_.model)
     case Store(refreshToken) => store(refreshToken)
   }

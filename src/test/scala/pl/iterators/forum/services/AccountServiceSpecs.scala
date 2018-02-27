@@ -22,11 +22,11 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues {
 
   describe("create regular account") {
     it("should create an account") {
-      new AccountFixture {
+      new AccountFixture with ConfirmationTokenFixture {
         val accountOrError =
           accountService
             .createRegular(AccountCreateRequest(Email("user34@forum.com"), PasswordPlain("GoodPass")))
-            .foldMap(accountInterpreter)
+            .foldMap(confirmationTokenOrAccountInterpreter)
 
         accountOrError should matchPattern {
           case Right(_) =>
@@ -35,11 +35,34 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues {
     }
 
     it("should not give admin rights") {
-      new AccountFixture {
+      new AccountFixture with ConfirmationTokenFixture {
         val accountOrError = accountService
           .createRegular(AccountCreateRequest(Email("user100@forum.com"), PasswordPlain("GoodPass")))
-          .foldMap(accountInterpreter)
+          .foldMap(confirmationTokenOrAccountInterpreter)
         accountOrError.right.value.isAdmin shouldEqual false
+      }
+    }
+
+    it("should create confirmation token for a new account") {
+      new AccountFixture with ConfirmationTokenFixture {
+        accountService
+          .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("Dr56::sf")))
+          .foldMap(confirmationTokenOrAccountInterpreter)
+
+        val tokens = tokenInterpreter.find(Email("user20@example.com"))
+        tokens should have length 1
+        tokens.head.email shouldEqual "user20@example.com"
+      }
+    }
+
+    it("should not create confirmation token if account is not created") {
+      new AccountFixture with ConfirmationTokenFixture {
+        accountService
+          .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("badpass")))
+          .foldMap(confirmationTokenOrAccountInterpreter)
+
+        val tokens = tokenInterpreter.find(Email("user20@example.com"))
+        tokens shouldBe empty
       }
     }
   }
