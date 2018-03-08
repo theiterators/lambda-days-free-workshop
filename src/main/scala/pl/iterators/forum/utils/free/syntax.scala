@@ -12,6 +12,7 @@ object syntax {
   implicit def freeSyntaxEither[S[_], A, B](f: Free[S, Either[A, B]]): FreeEitherOps[S, A, B] = new FreeEitherOps(f)
   implicit def freeSyntax[S[_], A](f: Free[S, A]): FreeOps[S, A]                              = new FreeOps(f)
   implicit def operationSyntax[S[_], A](s: S[A]): DSLOps[S, A]                                = new DSLOps(s)
+  implicit def anyValSyntax[A](a: A): AnyValOps[A]                                            = new AnyValOps(a)
 }
 
 final class FreeOptionOps[S[_], A](val f: Free[S, Option[A]]) extends AnyVal {
@@ -33,4 +34,8 @@ final class FreeOps[S[_], A](val f: Free[S, A]) extends AnyVal {
     })
   def assume[Env]: ReaderT[Free[S, ?], Env, A] = ReaderT.liftF(f)
   def toEitherT[B]: EitherT[Free[S, ?], B, A]  = EitherT.liftF(f)
+}
+
+final class AnyValOps[A](val a: A) extends AnyVal {
+  def pure[S[_]]: Free[S, A] = Free.pure(a)
 }

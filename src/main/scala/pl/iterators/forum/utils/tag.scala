@@ -13,9 +13,8 @@ import scala.language.higherKinds
   */
 object tag {
 
-  type Tag[+U]        = { type Tag <: U }
-  type Tagged[+T, +U] = T with Tag[U]
-  type @@[+T, +U]     = Tagged[T, U]
+  trait Tagged[U]
+  type @@[+T, U] = T with Tagged[U]
 
   /** Function-first-style tagging API.
     * @tparam U type to tag with

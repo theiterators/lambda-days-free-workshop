@@ -1,12 +1,16 @@
 package pl.iterators.forum.services
 
+import cats.InjectK
 import cats.data.EitherT
-import pl.iterators.forum.utils.free.syntax._
+import cats.free.Free
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.AccountRepository.StoreResult
 import pl.iterators.forum.repositories._
+import pl.iterators.forum.utils.free.syntax._
 import pl.iterators.forum.utils.Change
 import pl.iterators.forum.utils.crypto.Crypto
+
+import scala.language.higherKinds
 
 trait AccountService {
   import pl.iterators.forum.services.AccountService._
@@ -21,7 +25,7 @@ trait AccountService {
     import ConfirmationTokenOrAccount._
 
     val storeAccountAndConfirmationToken = for {
-      account <- EitherT(store(accountCreateRequest, admin = false).as[ConfirmationTokenOrAccount])
+      account <- EitherT(store[ConfirmationTokenOrAccount](accountCreateRequest, admin = false))
       confirmationToken = ConfirmationToken.generate(account.email)
       _ <- storeToken(confirmationToken).toEitherT[AccountError]
     } yield account
@@ -30,23 +34,21 @@ trait AccountService {
   }
   def createAdmin(adminAccountCreateRequest: AdminAccountCreateRequest): AccountOperation[Either[AccountError, AccountWithId]] =
     store(adminAccountCreateRequest.asAccountCreateRequest, admin = true)
-  private def store(accountCreateRequest: AccountCreateRequest, admin: Boolean): AccountOperation[Either[AccountError, AccountWithId]] = {
-    val action = for {
-      _       <- EitherT.fromEither[AccountOperation](passwordPolicy(accountCreateRequest.password))
-      account <- EitherT(AccountRepository.store(accountCreateRequest.email, Crypto.encryptFunction(accountCreateRequest.password), admin))
-    } yield account
-
-    action.value
-  }
 
   def update(id: AccountId, accountChangeRequest: AccountChangeRequest): AccountOperation[StoreResult] =
-    (for {
-      _       <- EitherT.fromEither[AccountOperation](accountChangeRequest.validatePassword(passwordPolicy))
-      updated <- EitherT(AccountRepository.update(id, accountChangeRequest.updateFunction))
-    } yield updated).value
+    EitherT(Free.defer(accountChangeRequest.validatePassword(passwordPolicy).pure[AccountRepository]))
+      .flatMapF(_ => AccountRepository.update(id, accountChangeRequest.updateFunction))
+      .value
 
   def queryNick(nick: Nick): AccountOperation[Option[ConfirmedAccountWithId]] = AccountRepository.queryNick(nick)
   def exists(nick: Nick): AccountOperation[Boolean]                           = AccountRepository.exists(nick)
+
+  private def store[F[_]](accountCreateRequest: AccountCreateRequest, admin: Boolean)(
+    implicit inj: InjectK[AccountRepository, F]): Free[F, Either[AccountError, AccountWithId]] =
+    EitherT(Free.defer(passwordPolicy(accountCreateRequest.password).pure[F]))
+      .flatMapF(password => AccountRepository.store(accountCreateRequest.email, Crypto.encryptFunction(password), admin))
+      .value
+
 }
 
 object AccountService {
