@@ -21,13 +21,23 @@ object AccountRepository {
   case class Store(email: Email, password: Password, admin: Boolean) extends AccountRepository[StoreResult]
   case class Update(id: AccountId, f: Account => Account)            extends AccountRepository[StoreResult]
 
-  def lookup(id: AccountId)                        = Free.liftF(Lookup(id))
-  def queryEmail(email: Email)                     = Free.liftF(QueryEmail(email))
-  def queryConfirmed(email: Email)                 = Free.liftF(QueryConfirmed(email))
-  def queryNick(nick: Nick)                        = Free.liftF(QueryNick(nick))
-  def exists(nick: Nick)                           = Free.liftF(Exists(nick))
-  def update(id: AccountId, f: Account => Account) = Free.liftF(Update(id, f))
-  def store[F[_]](email: Email, password: Password, admin: Boolean)(implicit inj: InjectK[AccountRepository, F]) =
-    Store(email, password, admin).into[F]
+  def lookup(id: AccountId)                                   = Free.liftF(Lookup(id))
+  def queryEmail(email: Email)                                = Free.liftF(QueryEmail(email))
+  def queryConfirmed(email: Email)                            = Free.liftF(QueryConfirmed(email))
+  def queryNick(nick: Nick)                                   = Free.liftF(QueryNick(nick))
+  def exists(nick: Nick)                                      = Free.liftF(Exists(nick))
+  def update(id: AccountId, f: Account => Account)            = Free.liftF(Update(id, f))
+  def store(email: Email, password: Password, admin: Boolean) = Free.liftF(Store(email, password, admin))
+
+  class Accounts[F[_]](implicit inj: InjectK[AccountRepository, F]) {
+    def queryEmail(email: Email)                                = QueryEmail(email).into[F]
+    def queryConfirmed(email: Email)                            = QueryConfirmed(email).into[F]
+    def store(email: Email, password: Password, admin: Boolean) = Store(email, password, admin).into[F]
+  }
+
+  object Accounts {
+    implicit def accounts[F[_]](implicit inj: InjectK[AccountRepository, F]): Accounts[F] = new Accounts
+    def apply[F[_]]()(implicit accounts: Accounts[F])                                     = accounts
+  }
 
 }

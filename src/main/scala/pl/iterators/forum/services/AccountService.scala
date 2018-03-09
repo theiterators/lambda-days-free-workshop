@@ -1,14 +1,14 @@
 package pl.iterators.forum.services
 
 import cats.InjectK
-import cats.data.EitherT
+import cats.data.{EitherK, EitherT}
 import cats.free.Free
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.AccountRepository.StoreResult
 import pl.iterators.forum.repositories._
-import pl.iterators.forum.utils.free.syntax._
 import pl.iterators.forum.utils.Change
 import pl.iterators.forum.utils.crypto.Crypto
+import pl.iterators.forum.utils.free.syntax._
 
 import scala.language.higherKinds
 
@@ -20,14 +20,14 @@ trait AccountService {
   def queryEmail(email: Email): AccountOperation[Option[AccountWithId]] = AccountRepository.queryEmail(email)
   def lookup(id: AccountId): AccountOperation[Option[AccountWithId]]    = AccountRepository.lookup(id)
 
-  def createRegular(
-      accountCreateRequest: AccountCreateRequest): ConfirmationTokenWithAccountOperation[Either[AccountError, AccountWithId]] = {
-    import ConfirmationTokenOrAccount._
+  def createRegular(accountCreateRequest: AccountCreateRequest): AccountStoreModule.Operation[Either[AccountError, AccountWithId]] = {
+    val accountStoreModule = AccountStoreModule()
+    import accountStoreModule._
 
     val storeAccountAndConfirmationToken = for {
-      account <- EitherT(store[ConfirmationTokenOrAccount](accountCreateRequest, admin = false))
+      account <- EitherT(store(accountCreateRequest, admin = false)(accounts))
       confirmationToken = ConfirmationToken.generate(account.email)
-      _ <- storeToken(confirmationToken).toEitherT[AccountError]
+      _ <- confirmationTokens.store(confirmationToken).toEitherT[AccountError]
     } yield account
 
     storeAccountAndConfirmationToken.value
@@ -44,11 +44,10 @@ trait AccountService {
   def exists(nick: Nick): AccountOperation[Boolean]                           = AccountRepository.exists(nick)
 
   private def store[F[_]](accountCreateRequest: AccountCreateRequest, admin: Boolean)(
-    implicit inj: InjectK[AccountRepository, F]): Free[F, Either[AccountError, AccountWithId]] =
+      implicit accounts: AccountRepository.Accounts[F]): Free[F, Either[AccountError, AccountWithId]] =
     EitherT(Free.defer(passwordPolicy(accountCreateRequest.password).pure[F]))
-      .flatMapF(password => AccountRepository.store(accountCreateRequest.email, Crypto.encryptFunction(password), admin))
+      .flatMapF(password => accounts.store(accountCreateRequest.email, Crypto.encryptFunction(password), admin))
       .value
-
 }
 
 object AccountService {
@@ -64,4 +63,20 @@ object AccountService {
     private def updateAbout(account: Account): Account    = about.fold(account)(newAbout => account.withAbout(newAbout))
     val updateFunction: Account => Account                = updatePassword _ compose updateAbout
   }
+
+  class AccountStoreModule[F[_]](implicit inj1: InjectK[AccountRepository, F], inj2: InjectK[ConfirmationTokenRepository, F]) {
+    type Algebra[A] = F[A]
+
+    import AccountRepository.Accounts
+    import ConfirmationTokenRepository.ConfirmationTokens
+
+    val accounts: Accounts[F]                     = Accounts()
+    val confirmationTokens: ConfirmationTokens[F] = ConfirmationTokens()
+  }
+  object AccountStoreModule {
+    type Algebra[A]   = EitherK[AccountRepository, ConfirmationTokenRepository, A]
+    type Operation[A] = Free[Algebra, A]
+    def apply() = new AccountStoreModule[Algebra]()
+  }
+
 }
