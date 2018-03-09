@@ -1,6 +1,7 @@
 package pl.iterators.forum.resources
 
 import java.time.OffsetDateTime
+import java.util.Locale
 
 import akka.http.scaladsl.model.StatusCodes._
 import akka.http.scaladsl.model.Uri.Path
@@ -8,7 +9,7 @@ import akka.http.scaladsl.server.Route
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.interpreters._
 import pl.iterators.forum.services.AccountService
-import pl.iterators.forum.services.AccountService.{AccountChangeRequest, AccountCreateRequest}
+import pl.iterators.forum.services.AccountService._
 import play.api.libs.functional.syntax._
 import play.api.libs.json._
 
@@ -34,12 +35,20 @@ object AccountsResource {
     )(AccountChangeRequest.apply _)
 
   }
+
+  private class MailEnv(override val locale: Locale, val host: String, val confirmationLinkTemplate: String) extends ConfirmationEmailEnv {
+    override def confirmationLink(email: Email, token: ConfirmationToken) =
+      confirmationLinkTemplate.format(host, token.value, Email.uriEncode(email))
+  }
 }
 
 trait AccountsResource extends Resource with AccountsResource.AccountsProtocol with LanguageSupport {
   def accountService: AccountService
   def accountRepositoryInterpreter: AccountRepositoryInterpreter
   def confirmationTokenInterpreter: ConfirmationTokenRepositoryInterpreter
+  def mailingInterpreter: MailingRepositoryInterpreter
+
+  def confirmationLinkTemplate: String
 
   import cats.instances.future._
 
@@ -82,13 +91,22 @@ trait AccountsResource extends Resource with AccountsResource.AccountsProtocol w
       onSuccess(runCheckNickExists(nick))(exists => if (exists) complete(NoContent) else complete(NotFound))
     }
 
-  private def runCreateAccount(accountCreateRequest: AccountCreateRequest) =
+  import pl.iterators.forum.resources.AccountsResource.MailEnv
+  private def withMailEnv = extractHost.flatMap { host =>
+    determineLocale().flatMap { locale =>
+      provide(new MailEnv(locale, host, confirmationLinkTemplate))
+    }
+  }
+  private def runCreateAccount(accountCreateRequest: AccountCreateRequest)(mailEnv: MailEnv) =
     accountService
-      .createRegular(accountCreateRequest) foldMap (accountRepositoryInterpreter or confirmationTokenInterpreter)
+      .createRegular(accountCreateRequest)
+      .run(mailEnv) foldMap (mailingInterpreter or (accountRepositoryInterpreter or confirmationTokenInterpreter))
   protected val createAccount: Route = (post & entity(as[AccountCreateRequest])) { accountCreateRequest =>
-    onSuccess(runCreateAccount(accountCreateRequest)) {
-      case Left(error)          => complete(Conflict -> error)
-      case Right(accountWithId) => completeWithLocation(accountWithId)(accountPath)
+    withMailEnv { mailEnv =>
+      onSuccess(runCreateAccount(accountCreateRequest)(mailEnv)) {
+        case Left(error)          => complete(Conflict -> error)
+        case Right(accountWithId) => completeWithLocation(accountWithId)(accountPath)
+      }
     }
   }
 

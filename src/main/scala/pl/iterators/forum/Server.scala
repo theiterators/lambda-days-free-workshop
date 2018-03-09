@@ -2,10 +2,13 @@ package pl.iterators.forum
 
 import java.time.Duration
 import java.util.Locale
+import java.util.concurrent.Executors
 
 import akka.actor.ActorSystem
+import akka.dispatch.ExecutionContexts
 import akka.event.Logging
 import akka.stream.Materializer
+import pl.iterators.forum.repositories.interpreters.{MailingRepositoryInterpreter, MailingRepositorySmtpInterpreter}
 import pl.iterators.forum.services.AuthenticationService
 import pl.iterators.forum.utils.crypto.Crypto
 
@@ -59,6 +62,8 @@ trait Server extends Setup { self =>
   def authenticationService = new AuthenticationService {
     override val refreshTokenTtl = self.refreshTokenTtl
   }
+  def mailingInterpreter: MailingRepositoryInterpreter =
+    new MailingRepositorySmtpInterpreter(smtpServerConfig, logger)(ExecutionContexts.fromExecutor(Executors.newSingleThreadExecutor()))
 
   lazy val restInterface = new RestInterface {
     override implicit val executor: ExecutionContext = self.executor
@@ -72,6 +77,8 @@ trait Server extends Setup { self =>
     override val authenticationService        = self.authenticationService
     override val refreshTokenInterpreter      = self.refreshTokenRepository
     override val confirmationTokenInterpreter = self.confirmationTokenRepository
+    override val mailingInterpreter           = self.mailingInterpreter
+    override val confirmationLinkTemplate     = self.confirmationLinkTemplate
   }
 
 }

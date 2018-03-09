@@ -1,23 +1,19 @@
 package pl.iterators.forum.services
 
-import java.time.Duration
-import java.util.Locale
 import java.util.Locale
 
 import cats.InjectK
-import cats.data.EitherT
+import cats.data._
 import cats.free.Free
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.AccountRepository.StoreResult
+import pl.iterators.forum.repositories.MailingRepository.Mailing
 import pl.iterators.forum.repositories._
-import pl.iterators.forum.utils.free.syntax._
 import pl.iterators.forum.utils.Change
 import pl.iterators.forum.utils.crypto.Crypto
+import pl.iterators.forum.utils.free.syntax._
 
 import scala.language.higherKinds
-import cats.data.{EitherK, EitherT}
-import pl.iterators.forum.repositories.MailingRepository.Mailing
-import pl.iterators.forum.utils.free.syntax._
 
 trait AccountService {
   import pl.iterators.forum.services.AccountService._
@@ -28,21 +24,25 @@ trait AccountService {
   def queryEmail(email: Email): AccountOperation[Option[AccountWithId]] = AccountRepository.queryEmail(email)
   def lookup(id: AccountId): AccountOperation[Option[AccountWithId]]    = AccountRepository.lookup(id)
 
-  def createRegular(accountCreateRequest: AccountCreateRequest)(
-      env: ConfirmationEmailEnv): RegistrationModule.Operation[Either[AccountError, AccountWithId]] = {
+  def createRegular(accountCreateRequest: AccountCreateRequest)
+    : Kleisli[RegistrationModule.Operation, ConfirmationEmailEnv, Either[AccountError, AccountWithId]] = {
     import RegistrationModule._
     import storage._
 
-    val storeAccountAndConfirmationToken = for {
-      account <- EitherT(store(accountCreateRequest, admin = false)(accounts))
-      confirmationToken = ConfirmationToken.generate(account.email)
-      _ <- confirmationTokens.store(confirmationToken).toEitherT[AccountError]
-      email   = account.email
-      message = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
-      _ <- mailing.sendEmail(message).toEitherT[AccountError]
-    } yield account
+    Kleisli { (env: ConfirmationEmailEnv) =>
+      val storeAccountAndConfirmationToken =
+        for {
+          account <- EitherT(store(accountCreateRequest, admin = false)(accounts))
+          confirmationToken = ConfirmationToken.generate(account.email)
+          _ <- confirmationTokens.store(confirmationToken).toEitherT[AccountError]
+          email   = account.email
+          message = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
+          _ <- mailing.sendEmail(message).toEitherT[AccountError]
+        } yield account
 
-    storeAccountAndConfirmationToken.value
+      storeAccountAndConfirmationToken.value
+    }
+
   }
   def createAdmin(adminAccountCreateRequest: AdminAccountCreateRequest): AccountOperation[Either[AccountError, AccountWithId]] =
     store(adminAccountCreateRequest.asAccountCreateRequest, admin = true)
