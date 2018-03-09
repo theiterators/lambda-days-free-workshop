@@ -16,7 +16,7 @@ object syntax {
 }
 
 final class FreeOptionOps[S[_], A](val f: Free[S, Option[A]]) extends AnyVal {
-  def toEither[B](ifNone: => B): EitherT[Free[S, ?], B, A] = EitherT(f map (opt => Either.fromOption(opt, ifNone)))
+  def toEither[B](ifNone: => B): EitherT[Free[S, ?], B, A] = EitherT.fromOptionF(f, ifNone)
 }
 
 final class FreeEitherOps[S[_], A, B](val f: Free[S, Either[A, B]]) extends AnyVal {
