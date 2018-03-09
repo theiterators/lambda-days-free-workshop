@@ -7,7 +7,7 @@ import pl.iterators.forum.fixtures._
 import pl.iterators.forum.services.AccountService._
 import pl.iterators.forum.utils.{Leave, Modify}
 
-class AccountServiceSpecs extends FunSpec with Matchers with EitherValues {
+class AccountServiceSpecs extends FunSpec with Matchers with EitherValues with LoneElement {
 
   val accountService = new AccountService {
     private val passwordMinLength = 4
@@ -18,15 +18,20 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues {
         _ <- mustContainLetter(password)
         _ <- mustContainUpper(password)
       } yield password
+
+    override val messages = new Messages {
+      override val from = EmailAddress(Email("noreply@example.com"), name = Some("no-reply"))
+    }
   }
 
   describe("create regular account") {
     it("should create an account") {
-      new AccountFixture with ConfirmationTokenFixture {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
         val accountOrError =
           accountService
             .createRegular(AccountCreateRequest(Email("user34@forum.com"), PasswordPlain("GoodPass")))
-            .foldMap(confirmationTokenOrAccountInterpreter)
+            .run(confirmationEmailEnv)
+            .foldMap(nullInterpreter or confirmationTokenOrAccountInterpreter)
 
         accountOrError should matchPattern {
           case Right(_) =>
@@ -35,34 +40,70 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues {
     }
 
     it("should not give admin rights") {
-      new AccountFixture with ConfirmationTokenFixture {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
         val accountOrError = accountService
           .createRegular(AccountCreateRequest(Email("user100@forum.com"), PasswordPlain("GoodPass")))
-          .foldMap(confirmationTokenOrAccountInterpreter)
+          .run(confirmationEmailEnv)
+          .foldMap(nullInterpreter or confirmationTokenOrAccountInterpreter)
         accountOrError.right.value.isAdmin shouldEqual false
       }
     }
 
     it("should create confirmation token for a new account") {
-      new AccountFixture with ConfirmationTokenFixture {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
         accountService
           .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("Dr56::sf")))
-          .foldMap(confirmationTokenOrAccountInterpreter)
+          .run(confirmationEmailEnv)
+          .foldMap(nullInterpreter or confirmationTokenOrAccountInterpreter)
 
-        val tokens = tokenInterpreter.find(Email("user20@example.com"))
-        tokens should have length 1
-        tokens.head.email shouldEqual "user20@example.com"
+        val token = tokenInterpreter.find(Email("user20@example.com")).loneElement
+        token.email shouldEqual "user20@example.com"
       }
     }
 
     it("should not create confirmation token if account is not created") {
-      new AccountFixture with ConfirmationTokenFixture {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
         accountService
           .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("badpass")))
-          .foldMap(confirmationTokenOrAccountInterpreter)
+          .run(confirmationEmailEnv)
+          .foldMap(nullInterpreter or confirmationTokenOrAccountInterpreter)
 
         val tokens = tokenInterpreter.find(Email("user20@example.com"))
         tokens shouldBe empty
+      }
+    }
+
+    it("should send confirmation email") {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+        import cats.instances.list._
+
+        val log = accountService
+          .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("Dr56::sf")))
+          .run(confirmationEmailEnv)
+          .foldMap(mailingLogger or (confirmationTokenOrAccountInterpreter andThen writeEmailLogValue))
+
+        val emails: List[EmailMessage] = log.written
+
+        val email = emails.loneElement
+        val token = tokenInterpreter.find(Email("user20@example.com")).loneElement
+
+        email should matchPattern {
+          case accountService.messages.ConfirmationMessage(address, _, link)
+              if address == "user20@example.com" && link == confirmationEmailEnv.confirmationLink(Email("user20@example.com"), token) =>
+        }
+      }
+    }
+
+    it("should not send confirmation email if account is not created") {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+        import cats.instances.list._
+        val log = accountService
+          .createRegular(AccountCreateRequest(Email("user20@example.com"), PasswordPlain("badpass")))
+          .run(confirmationEmailEnv)
+          .foldMap(mailingLogger or (confirmationTokenOrAccountInterpreter andThen writeEmailLogValue))
+
+        val emails = log.written
+        emails shouldBe empty
       }
     }
   }

@@ -6,17 +6,18 @@ import akka.http.scaladsl.model.headers._
 import akka.http.scaladsl.server.Route
 import org.scalatest.{LoneElement, OptionValues}
 import pl.iterators.forum.domain._
-import pl.iterators.forum.fixtures.{AccountFixture, ConfirmationTokenFixture}
+import pl.iterators.forum.fixtures._
 import pl.iterators.forum.resources.AccountsResource.AccountsProtocol
 import pl.iterators.forum.services.AccountService.AccountCreateRequest
 import play.api.libs.json._
 
 class AccountsResourceSpec extends BaseSpec with AccountsProtocol with OptionValues with LoneElement {
-  private val accounts       = new AccountFixture with ConfirmationTokenFixture
+  private val accounts       = new AccountFixture with ConfirmationTokenFixture with MailingFixture
   private lazy val testRoute = Route.seal(restInterface.accountsRoutes)
 
   override val accountRepository           = accounts.accountInterpreter andThen inFuture
   override val confirmationTokenRepository = accounts.tokenInterpreter andThen inFuture
+  override val mailingInterpreter          = accounts.nullInterpreter andThen inFuture
 
   feature("Account lookup") {
     val account = accounts.existingAccount
