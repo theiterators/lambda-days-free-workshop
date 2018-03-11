@@ -2,8 +2,9 @@ package pl.iterators.forum
 
 import java.time.OffsetDateTime
 
+import org.postgresql.util.PSQLException
 import org.scalatest._
-import pl.iterators.forum.domain.{AccountId, AccountNotExists, EmailNotUnique}
+import pl.iterators.forum.domain.{AccountId, AccountNotExists, EmailNotUnique, NickNotUnique}
 import pl.iterators.forum.domain.tags._
 import pl.iterators.forum.fixtures.Accounts
 import pl.iterators.forum.repositories.interpreters.AccountRepositoryDbInterpreter
@@ -142,6 +143,34 @@ class AccountRepositoryDbInterpreterSpecs extends BaseItSpec with OptionValues w
           alsoExisting shouldBe true
           notExisting shouldBe false
       }
+  }
+
+  it should "set confirmed flag and nick for user" in {
+    new Accounts(db)
+      .fixture("user@forum.com", None, "anything", admin = false, banned = false, confirmed = false) { id =>
+        accountRepository.setConfirmed("user@forum.com".@@[EmailTag], "JohnnyBGood".@@[NickTag]) andThen accountRepository.lookup(id)
+      }
+      .map(_.value)
+      .map { user =>
+        user.nick shouldEqual Some("JohnnyBGood")
+        user.isConfirmed shouldBe true
+      }
+  }
+
+  it should "maintain nick uniqueness" in {
+    new Accounts(db)
+      .fixture("user@forum.com", "JohnnyBGood", "anything") { _ =>
+        accountRepository.store("another_user@forum.com".@@[EmailTag], Crypto.encryptFunction("password"), isAdmin = false) andThen
+          accountRepository.setConfirmed("another_user@forum.com".@@[EmailTag], "Johnnybgood".@@[NickTag])
+      }
+      .map(_ shouldEqual Left(NickNotUnique))
+  }
+
+  it should "not allow to set confirmed flag with null nick" in {
+    recoverToSucceededIf[PSQLException] {
+      new Accounts(db)
+        .fixture("user@forum.com", None, "anything", admin = false, banned = false, confirmed = true)(_ => fail())
+    }
   }
 
   def confirmedUser(email: String,

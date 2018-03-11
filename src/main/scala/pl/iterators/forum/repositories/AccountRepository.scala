@@ -20,6 +20,7 @@ object AccountRepository {
   case class Exists(nick: Nick)                                      extends AccountRepository[Boolean]
   case class Store(email: Email, password: Password, admin: Boolean) extends AccountRepository[StoreResult]
   case class Update(id: AccountId, f: Account => Account)            extends AccountRepository[StoreResult]
+  case class SetConfirmed(email: Email, nick: Nick)                  extends AccountRepository[Either[ConfirmationError, Ok.type]]
 
   def lookup(id: AccountId)                                   = Free.liftF(Lookup(id))
   def queryEmail(email: Email)                                = Free.liftF(QueryEmail(email))
@@ -28,11 +29,13 @@ object AccountRepository {
   def exists(nick: Nick)                                      = Free.liftF(Exists(nick))
   def update(id: AccountId, f: Account => Account)            = Free.liftF(Update(id, f))
   def store(email: Email, password: Password, admin: Boolean) = Free.liftF(Store(email, password, admin))
+  def setConfirmed(email: Email, nick: Nick)                  = Free.liftF(SetConfirmed(email, nick))
 
   class Accounts[F[_]](implicit inj: InjectK[AccountRepository, F]) {
     def queryEmail(email: Email)                                = QueryEmail(email).into[F]
     def queryConfirmed(email: Email)                            = QueryConfirmed(email).into[F]
     def store(email: Email, password: Password, admin: Boolean) = Store(email, password, admin).into[F]
+    def setConfirmed(email: Email, nick: Nick)                  = SetConfirmed(email, nick).into[F]
   }
 
   object Accounts {

@@ -36,8 +36,9 @@ trait Setup { self =>
 
   def accountRepository: AccountRepositoryInterpreter = new AccountRepositoryDbInterpreter(db)
   def accountService = new AccountService {
-    override val passwordPolicy = self.passwordPolicy
-    override val messages       = self.noReplyMessages
+    override val passwordPolicy       = self.passwordPolicy
+    override val messages             = self.noReplyMessages
+    override val confirmationTokenTtl = self.confirmationTokenTtl
   }
 
   def refreshTokenRepository: RefreshTokenRepositoryInterpreter           = new RefreshTokenRepositoryDbInterpreter(db)

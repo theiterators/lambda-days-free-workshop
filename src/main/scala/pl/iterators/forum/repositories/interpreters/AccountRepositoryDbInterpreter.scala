@@ -8,7 +8,7 @@ import pl.iterators.forum.domain.tags.{IdTag, NickTag}
 import pl.iterators.forum.repositories.{AccountOperation, AccountRepository}
 import pl.iterators.forum.utils.crypto.Crypto.Password
 import pl.iterators.forum.utils.db.PostgresDriver.api._
-import pl.iterators.forum.utils.db.Repository.{NotUpdated, UniqueViolation}
+import pl.iterators.forum.utils.db.Repository._
 import pl.iterators.forum.utils.db._
 import pl.iterators.forum.utils.tag.@@
 import slick.dbio.Effect.{Read, Write}
@@ -30,6 +30,7 @@ class AccountRepositoryDbInterpreter(db: Database)(implicit executionContext: Ex
     case Exists(nick)                    => db.run(exists(nick))
     case Store(email, password, isAdmin) => db.run(store(email, password, isAdmin))
     case Update(id, f)                   => db.run(update(id, f))
+    case SetConfirmed(email, nick)       => db.run(setConfirmed(email, nick))
   }
 
   final def apply[A](composite: AccountOperation[A]): Future[A] = composite foldMap this
@@ -69,6 +70,14 @@ class AccountRepositoryDbInterpreter(db: Database)(implicit executionContext: Ex
       case Failure(t)                                     => DBIO.failed(t)
     }
 
+  def setConfirmed(email: Email, nick: Nick): DBIOAction[Either[AccountDbError with ConfirmationError, Ok.type], NoStream, Write] =
+    mapPSQLException(mapNickConfirmedC(email).update((Some(nick), true))).flatMap {
+      case Success(updated) if updated == 1              => DBIO.successful(Right(Ok))
+      case Success(_)                                    => DBIO.successful(Left(AccountNotExists))
+      case Failure(UniqueViolation("users_nick_key", _)) => DBIO.successful(Left(NickNotUnique))
+      case Failure(t)                                    => DBIO.failed(t)
+    }
+
   private def filterEmail(email: Rep[Email]) = users.table.filter(_.email === email)
   private val filterEmailC                   = Compiled(filterEmail _)
 
@@ -80,6 +89,9 @@ class AccountRepositoryDbInterpreter(db: Database)(implicit executionContext: Ex
 
   private def existsNick(nick: Rep[Nick]) = filterNick(nick).map(_.id).exists
   private val existsNickC                 = Compiled(existsNick _)
+
+  private def mapNickConfirmed(email: Rep[Email]) = filterEmail(email).map(u => (u.nick, u.confirmed))
+  private val mapNickConfirmedC                   = Compiled(mapNickConfirmed _)
 
 }
 

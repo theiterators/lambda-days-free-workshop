@@ -1,12 +1,14 @@
 package pl.iterators.forum.services
 
+import java.time.Duration
 import java.util.Locale
 
 import cats.InjectK
 import cats.data._
 import cats.free.Free
 import pl.iterators.forum.domain._
-import pl.iterators.forum.repositories.AccountRepository.StoreResult
+import pl.iterators.forum.repositories.AccountRepository.{Accounts, StoreResult}
+import pl.iterators.forum.repositories.ConfirmationTokenRepository.ConfirmationTokens
 import pl.iterators.forum.repositories.MailingRepository.Mailing
 import pl.iterators.forum.repositories._
 import pl.iterators.forum.utils.Change
@@ -20,6 +22,7 @@ trait AccountService {
 
   def passwordPolicy: PasswordPlain => Either[PasswordTooWeak.type, String]
   def messages: Messages
+  def confirmationTokenTtl: Duration
 
   def queryEmail(email: Email): AccountOperation[Option[AccountWithId]] = AccountRepository.queryEmail(email)
   def lookup(id: AccountId): AccountOperation[Option[AccountWithId]]    = AccountRepository.lookup(id)
@@ -29,23 +32,12 @@ trait AccountService {
     import RegistrationModule._
     import storage._
 
-    Kleisli { (env: ConfirmationEmailEnv) =>
-      val storeAccountAndConfirmationToken =
-        for {
-          account <- EitherT(store(accountCreateRequest, admin = false)(accounts))
-          confirmationToken = ConfirmationToken.generate(account.email)
-          _ <- confirmationTokens.store(confirmationToken).toEitherT[AccountError]
-          email   = account.email
-          message = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
-          _ <- mailing.sendEmail(message).toEitherT[AccountError]
-        } yield account
-
-      storeAccountAndConfirmationToken.value
-    }
-
+    storeAccount(accountCreateRequest, admin = false)(accounts)
+      .assumeT[ConfirmationEmailEnv]
+      .onSuccessRun(account => storeAndSendConfirmationToken(account)(confirmationTokens, mailing).map(_ => account))
   }
   def createAdmin(adminAccountCreateRequest: AdminAccountCreateRequest): AccountOperation[Either[AccountError, AccountWithId]] =
-    store(adminAccountCreateRequest.asAccountCreateRequest, admin = true)
+    storeAccount(adminAccountCreateRequest.asAccountCreateRequest, admin = true)
 
   def update(id: AccountId, accountChangeRequest: AccountChangeRequest): AccountOperation[StoreResult] =
     EitherT(Free.defer(accountChangeRequest.validatePassword(passwordPolicy).pure[AccountRepository]))
@@ -55,11 +47,50 @@ trait AccountService {
   def queryNick(nick: Nick): AccountOperation[Option[ConfirmedAccountWithId]] = AccountRepository.queryNick(nick)
   def exists(nick: Nick): AccountOperation[Boolean]                           = AccountRepository.exists(nick)
 
-  private def store[F[_]](accountCreateRequest: AccountCreateRequest, admin: Boolean)(
+  def confirm(accountConfirmRequest: AccountConfirmRequest): AccountStoreModule.Operation[Either[ConfirmationError, Ok.type]] = {
+    val accountStoreModule = AccountStoreModule()
+    import accountStoreModule._
+
+    confirmationTokens
+      .query(accountConfirmRequest.email, accountConfirmRequest.confirmationToken)
+      .toEither(ifNone = InvalidToken)
+      .subflatMap(confirmationToken =>
+        Either.cond(test = !confirmationToken.isExpired(confirmationTokenTtl), accountConfirmRequest.email, TokenExpired))
+      .flatMapF(email => accounts.setConfirmed(email, accountConfirmRequest.nick))
+      .value
+  }
+
+  def sendNewConfirmation(newConfirmationRequest: NewConfirmationRequest)
+    : Kleisli[RegistrationModule.Operation, ConfirmationEmailEnv, Either[InvalidCredentials.type, Ok.type]] = {
+    import RegistrationModule._
+    import storage._
+
+    accounts
+      .queryEmail(newConfirmationRequest.email)
+      .toEither(ifNone = InvalidCredentials)
+      .subflatMap(account => Either.cond(test = !account.isConfirmed, account, InvalidCredentials))
+      .subflatMap(account => Either.cond(test = account.validatePassword(newConfirmationRequest.password), account, InvalidCredentials))
+      .assume[ConfirmationEmailEnv]
+      .onSuccessRun(account => storeAndSendConfirmationToken(account)(confirmationTokens, mailing))
+  }
+
+  private def storeAccount[F[_]](accountCreateRequest: AccountCreateRequest, admin: Boolean)(
       implicit accounts: AccountRepository.Accounts[F]): Free[F, Either[AccountError, AccountWithId]] =
     EitherT(Free.defer(passwordPolicy(accountCreateRequest.password).pure[F]))
       .flatMapF(password => accounts.store(accountCreateRequest.email, Crypto.encryptFunction(password), admin))
       .value
+
+  private def storeAndSendConfirmationToken[F[_]](account: Account)(
+      confirmationTokens: ConfirmationTokens[F],
+      mailing: Mailing[F]): Kleisli[Free[F, ?], ConfirmationEmailEnv, Ok.type] = Kleisli { (env: ConfirmationEmailEnv) =>
+    val email = account.email
+    for {
+      confirmationToken <- Free.defer(ConfirmationToken.generate(email).pure[F])
+      _                 <- confirmationTokens.store(confirmationToken)
+      message = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
+      _ <- mailing.sendEmail(message)
+    } yield Ok
+  }
 
 }
 
@@ -76,12 +107,12 @@ object AccountService {
     private def updateAbout(account: Account): Account    = about.fold(account)(newAbout => account.withAbout(newAbout))
     val updateFunction: Account => Account                = updatePassword _ compose updateAbout
   }
+  case class AccountConfirmRequest(email: Email, confirmationToken: String, nick: Nick)
+
+  type NewConfirmationRequest = AccountCreateRequest
 
   class AccountStoreModule[F[_]](implicit inj1: InjectK[AccountRepository, F], inj2: InjectK[ConfirmationTokenRepository, F]) {
     type Algebra[A] = F[A]
-
-    import AccountRepository.Accounts
-    import ConfirmationTokenRepository.ConfirmationTokens
 
     val accounts: Accounts[F]                     = Accounts()
     val confirmationTokens: ConfirmationTokens[F] = ConfirmationTokens()

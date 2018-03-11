@@ -11,8 +11,13 @@ import pl.iterators.forum.resources.AccountsResource.AccountsProtocol
 import pl.iterators.forum.services.AccountService.AccountCreateRequest
 import play.api.libs.json._
 
+import scala.language.reflectiveCalls
+
 class AccountsResourceSpec extends BaseSpec with AccountsProtocol with OptionValues with LoneElement {
-  private val accounts       = new AccountFixture with ConfirmationTokenFixture with MailingFixture
+  private val accounts = new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+    val validConfirmationToken   = createToken(unconfirmedUser.email)
+    val expiredConfirmationToken = createExpiredToken(unconfirmedUser.email, accountService.confirmationTokenTtl)
+  }
   private lazy val testRoute = Route.seal(restInterface.accountsRoutes)
 
   override val accountRepository           = accounts.accountInterpreter andThen inFuture
@@ -219,6 +224,95 @@ class AccountsResourceSpec extends BaseSpec with AccountsProtocol with OptionVal
       }
     }
 
+  }
+
+  feature("Confirming account") {
+
+    scenario("Valid confirmation") {
+      Put(
+        "/confirmation",
+        JsObject(
+          Seq("email"             -> JsString(accounts.unconfirmedUser.email),
+              "nick"              -> JsString("Wannabe"),
+              "confirmationToken" -> JsString(accounts.validConfirmationToken)))
+      ) ~> testRoute ~> check {
+        status shouldEqual NoContent
+      }
+    }
+
+    scenario("Invalid confirmation token") {
+      Put(
+        "/confirmation",
+        JsObject(
+          Seq("email"             -> JsString(accounts.unconfirmedUser.email),
+              "nick"              -> JsString("Wannabe"),
+              "confirmationToken" -> JsString("abcdefghijklmnopqrstuvxyz")))
+      ) ~> testRoute ~> check {
+        status shouldEqual BadRequest
+
+        val error = responseAs[JsObject]
+        error shouldEqual JsObject(Map("error" -> JsString("InvalidToken")))
+      }
+    }
+
+    scenario("Expired confirmation token") {
+      Put(
+        "/confirmation",
+        JsObject(
+          Seq("email"             -> JsString(accounts.unconfirmedUser.email),
+              "nick"              -> JsString("Wannabe"),
+              "confirmationToken" -> JsString(accounts.expiredConfirmationToken)))
+      ) ~> testRoute ~> check {
+        status shouldEqual BadRequest
+
+        val error = responseAs[JsObject]
+        error shouldEqual JsObject(Map("error" -> JsString("TokenExpired")))
+      }
+    }
+
+    scenario("Nick not unique") {
+      Put(
+        "/confirmation",
+        JsObject(
+          Seq(
+            "email"             -> JsString(accounts.unconfirmedUser.email),
+            "nick"              -> JsString(accounts.existingAccount.confirmedNick),
+            "confirmationToken" -> JsString(accounts.validConfirmationToken)
+          ))
+      ) ~> testRoute ~> check {
+        status shouldEqual Conflict
+
+        val error = responseAs[JsObject]
+        error shouldEqual JsObject(Map("error" -> JsString("NickNotUnique")))
+      }
+    }
+
+  }
+
+  feature("New confirmation token") {
+    scenario("Valid request") {
+      Post("/confirmation", AccountCreateRequest(accounts.unconfirmedUser.email, PasswordPlain(accounts.unconfirmedUserPassword))) ~> testRoute ~> check {
+        status shouldEqual NoContent
+      }
+    }
+
+    scenario("Already confirmed account") {
+      Post("/confirmation", AccountCreateRequest(accounts.existingAccount.email, PasswordPlain(accounts.existingAccountPlainPassword))) ~> testRoute ~> check {
+        status shouldEqual BadRequest
+
+        val error = responseAs[JsObject]
+        error shouldEqual JsObject(Map("error" -> JsString("InvalidCredentials")))
+      }
+    }
+
+    scenario("Invalid credentials") {
+      Post("/confirmation", AccountCreateRequest(accounts.unconfirmedUser.email, PasswordPlain("......"))) ~> testRoute ~> check {
+        status shouldEqual BadRequest
+
+        val error = responseAs[JsObject]
+        error shouldEqual JsObject(Map("error" -> JsString("InvalidCredentials")))
+      }
+    }
   }
 
 }

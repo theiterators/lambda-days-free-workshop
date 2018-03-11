@@ -33,6 +33,7 @@ object AccountsResource {
       (__ \ "about").readChange[String] and
         (__ \ "password").readNullable[PasswordPlain]
     )(AccountChangeRequest.apply _)
+    implicit val confirmAccountRequestReads: Reads[AccountConfirmRequest] = Json.reads[AccountConfirmRequest]
 
   }
 
@@ -126,6 +127,29 @@ trait AccountsResource extends Resource with AccountsResource.AccountsProtocol w
       }
   }
 
+  private def runConfirmAccount(accountConfirmRequest: AccountConfirmRequest) =
+    accountService.confirm(accountConfirmRequest) foldMap (accountRepositoryInterpreter or confirmationTokenInterpreter)
+  protected val confirmAccount: Route = (put & entity(as[AccountConfirmRequest])) { accountConfirmRequest =>
+    onSuccess(runConfirmAccount(accountConfirmRequest)) {
+      case Right(Ok)           => complete(NoContent)
+      case Left(NickNotUnique) => complete(Conflict -> NickNotUnique)
+      case Left(error)         => complete(BadRequest -> error)
+    }
+  }
+
+  private def runSendNewConfirmation(newConfirmationRequest: NewConfirmationRequest)(mailEnv: ConfirmationEmailEnv) =
+    accountService
+      .sendNewConfirmation(newConfirmationRequest)
+      .run(mailEnv) foldMap (mailingInterpreter or (accountRepositoryInterpreter or confirmationTokenInterpreter))
+  protected val sendNewConfirmation: Route = (post & entity(as[NewConfirmationRequest])) { newConfirmationRequest =>
+    withMailEnv { mailEnv =>
+      onSuccess(runSendNewConfirmation(newConfirmationRequest)(mailEnv)) {
+        case Right(Ok)                => complete(NoContent)
+        case Left(InvalidCredentials) => complete(BadRequest -> InvalidCredentials)
+      }
+    }
+  }
+
   val accountsRoutes =
     pathEndOrSingleSlash {
       queryAccount ~ createAccount ~ checkNickExists
@@ -134,5 +158,5 @@ trait AccountsResource extends Resource with AccountsResource.AccountsProtocol w
         pathEnd {
           lookupAccount(accountId) ~ updateAccount(accountId)
         }
-      }
+      } ~ path("confirmation") { confirmAccount ~ sendNewConfirmation }
 }

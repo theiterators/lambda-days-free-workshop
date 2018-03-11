@@ -28,6 +28,10 @@ class AccountFixture {
               AccountImpl(email, None, password, nowValue, isAdmin = isAdmin)
             ))
       case Update(id, f) => lookup(id).fold[StoreResult](Left(AccountNotExists))(account => Right(account.transform(f)))
+      case SetConfirmed(email, nick) =>
+        if (queryEmail(email).isEmpty) Left(AccountNotExists)
+        else if (queryNick(nick).isDefined) Left(NickNotUnique)
+        else Right(Ok)
     }
     private def queryNick(nick: Nick) = {
       if (nick == existingAccount.confirmedNick) Some(existingAccount)
@@ -92,7 +96,7 @@ class AccountFixture {
   val unconfirmedUserPassword = "ad343v !"
   val unconfirmedUser: AccountWithId = WithId(
     AccountId(324532),
-    AccountImpl(Email("wannabe@user.com"), None, Crypto.encryptFunction(evilUserPassword), nowValue)
+    AccountImpl(Email("wannabe@user.com"), None, Crypto.encryptFunction(unconfirmedUserPassword), nowValue)
   )
 
 }

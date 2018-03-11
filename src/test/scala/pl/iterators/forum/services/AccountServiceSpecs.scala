@@ -1,5 +1,7 @@
 package pl.iterators.forum.services
 
+import java.time.Duration
+
 import org.scalatest._
 import pl.iterators.forum.domain.PasswordPolicies._
 import pl.iterators.forum.domain._
@@ -22,6 +24,8 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues with L
     override val messages = new Messages {
       override val from = EmailAddress(Email("noreply@example.com"), name = Some("no-reply"))
     }
+
+    override val confirmationTokenTtl = Duration.ofMinutes(1)
   }
 
   describe("create regular account") {
@@ -165,6 +169,103 @@ class AccountServiceSpecs extends FunSpec with Matchers with EitherValues with L
           .foldMap(accountInterpreter)
 
         updatedOrError.left.value shouldEqual PasswordTooWeak
+      }
+    }
+  }
+
+  describe("confirm account") {
+    it("should mark account as confirmed when right token is being used") {
+      new AccountFixture with ConfirmationTokenFixture {
+        val token = createToken(unconfirmedUser.email)
+        val okOrError = accountService
+          .confirm(AccountConfirmRequest(unconfirmedUser.email, token, Nick("Gandalf")))
+          .foldMap(confirmationTokenOrAccountInterpreter)
+
+        okOrError.right.value shouldBe Ok
+      }
+    }
+
+    it("should not mark account as confirmed when invalid token is used") {
+      new AccountFixture with ConfirmationTokenFixture {
+        val token = createToken(unconfirmedUser.email)
+        val okOrError = accountService
+          .confirm(AccountConfirmRequest(unconfirmedUser.email, token + "abcd", Nick("Gandalf")))
+          .foldMap(confirmationTokenOrAccountInterpreter)
+
+        okOrError.left.value shouldBe InvalidToken
+      }
+    }
+
+    it("should not mark account as confirmed when token has expired") {
+      new AccountFixture with ConfirmationTokenFixture {
+        val token = createExpiredToken(unconfirmedUser.email, accountService.confirmationTokenTtl)
+        val okOrError = accountService
+          .confirm(AccountConfirmRequest(unconfirmedUser.email, token, Nick("Gandalf")))
+          .foldMap(confirmationTokenOrAccountInterpreter)
+
+        okOrError.left.value shouldBe TokenExpired
+      }
+    }
+  }
+
+  describe("send new confirmation") {
+    it("should send new confirmation token when authenticated") {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+        import cats.instances.list._
+        createToken(unconfirmedUser.email)
+
+        val log = accountService
+          .sendNewConfirmation(AccountCreateRequest(unconfirmedUser.email, PasswordPlain(unconfirmedUserPassword)))
+          .run(confirmationEmailEnv)
+          .foldMap(mailingLogger or (confirmationTokenOrAccountInterpreter andThen writeEmailLogValue))
+
+        log.value.right.value shouldBe Ok
+
+        val tokens = tokenInterpreter.find(unconfirmedUser.email)
+        tokens should have length 2
+
+        val newToken                   = tokens.last
+        val emails: List[EmailMessage] = log.written
+        emails.loneElement should matchPattern {
+          case accountService.messages.ConfirmationMessage(email, _, link)
+              if email == unconfirmedUser.email && link == confirmationEmailEnv.confirmationLink(unconfirmedUser.email, newToken) =>
+        }
+      }
+    }
+
+    it("should not send new confirmation token if not authenticated") {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+        import cats.instances.list._
+        createToken(unconfirmedUser.email)
+
+        val log = accountService
+          .sendNewConfirmation(AccountCreateRequest(unconfirmedUser.email, PasswordPlain(".......")))
+          .run(confirmationEmailEnv)
+          .foldMap(mailingLogger or (confirmationTokenOrAccountInterpreter andThen writeEmailLogValue))
+
+        log.value.left.value shouldBe InvalidCredentials
+
+        val tokens = tokenInterpreter.find(unconfirmedUser.email)
+        tokens should have length 1
+
+        val emails = log.written
+        emails shouldBe empty
+      }
+    }
+
+    it("should not send new confirmation token if account already confirmed") {
+      new AccountFixture with ConfirmationTokenFixture with MailingFixture {
+        import cats.instances.list._
+
+        val log = accountService
+          .sendNewConfirmation(AccountCreateRequest(existingAccount.email, PasswordPlain(existingAccountPlainPassword)))
+          .run(confirmationEmailEnv)
+          .foldMap(mailingLogger or (confirmationTokenOrAccountInterpreter andThen writeEmailLogValue))
+
+        log.value.left.value shouldBe InvalidCredentials
+
+        val emails = log.written
+        emails shouldBe empty
       }
     }
   }
