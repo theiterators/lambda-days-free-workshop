@@ -5,7 +5,7 @@ import java.util.Locale
 
 import cats.InjectK
 import cats.data._
-import cats.free.Free
+import cats.free.{Free, FreeApplicative}
 import pl.iterators.forum.domain._
 import pl.iterators.forum.repositories.AccountRepository.{Accounts, StoreResult}
 import pl.iterators.forum.repositories.ConfirmationTokenRepository.ConfirmationTokens
@@ -13,6 +13,7 @@ import pl.iterators.forum.repositories.MailingRepository.Mailing
 import pl.iterators.forum.repositories._
 import pl.iterators.forum.utils.Change
 import pl.iterators.forum.utils.crypto.Crypto
+import pl.iterators.forum.utils.free.par.SeqPar
 import pl.iterators.forum.utils.free.syntax._
 
 import scala.language.higherKinds
@@ -28,11 +29,11 @@ trait AccountService {
   def lookup(id: AccountId): AccountOperation[Option[AccountWithId]]    = AccountRepository.lookup(id)
 
   def createRegular(accountCreateRequest: AccountCreateRequest)
-    : Kleisli[RegistrationModule.Operation, ConfirmationEmailEnv, Either[AccountError, AccountWithId]] = {
+    : Kleisli[RegistrationModule.Par.Operation, ConfirmationEmailEnv, Either[AccountError, AccountWithId]] = {
     import RegistrationModule._
     import storage._
 
-    storeAccount(accountCreateRequest, admin = false)(accounts)
+    storeAccount(accountCreateRequest, admin = false)(accounts).liftPar
       .assumeT[ConfirmationEmailEnv]
       .onSuccessRun(account => storeAndSendConfirmationToken(account)(confirmationTokens, mailing).map(_ => account))
   }
@@ -61,12 +62,13 @@ trait AccountService {
   }
 
   def sendNewConfirmation(newConfirmationRequest: NewConfirmationRequest)
-    : Kleisli[RegistrationModule.Operation, ConfirmationEmailEnv, Either[InvalidCredentials.type, Ok.type]] = {
+    : Kleisli[RegistrationModule.Par.Operation, ConfirmationEmailEnv, Either[InvalidCredentials.type, Ok.type]] = {
     import RegistrationModule._
     import storage._
 
     accounts
       .queryEmail(newConfirmationRequest.email)
+      .liftPar
       .toEither(ifNone = InvalidCredentials)
       .subflatMap(account => Either.cond(test = !account.isConfirmed, account, InvalidCredentials))
       .subflatMap(account => Either.cond(test = account.validatePassword(newConfirmationRequest.password), account, InvalidCredentials))
@@ -80,17 +82,16 @@ trait AccountService {
       .flatMapF(password => accounts.store(accountCreateRequest.email, Crypto.encryptFunction(password), admin))
       .value
 
-  private def storeAndSendConfirmationToken[F[_]](account: Account)(
-      confirmationTokens: ConfirmationTokens[F],
-      mailing: Mailing[F]): Kleisli[Free[F, ?], ConfirmationEmailEnv, Ok.type] = Kleisli { (env: ConfirmationEmailEnv) =>
-    val email = account.email
-    for {
-      confirmationToken <- Free.defer(ConfirmationToken.generate(email).pure[F])
-      _                 <- confirmationTokens.store(confirmationToken)
-      message = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
-      _ <- mailing.sendEmail(message)
-    } yield Ok
-  }
+  private def storeAndSendConfirmationToken[F[_]](account: Account)(confirmationTokens: ConfirmationTokens[F], mailing: Mailing[F]) =
+    Kleisli[SeqPar[F, ?], ConfirmationEmailEnv, Ok.type] { (env: ConfirmationEmailEnv) =>
+      import pl.iterators.forum.utils.free.par.syntax._
+
+      val email             = account.email
+      val confirmationToken = ConfirmationToken.generate(email)
+      val message           = messages.ConfirmationMessage(email, env.locale, env.confirmationLink(email, confirmationToken))
+
+      (confirmationTokens.par.store(confirmationToken) >* mailing.par.sendEmail(message)).liftSeq
+    }
 
 }
 
@@ -111,7 +112,7 @@ object AccountService {
 
   type NewConfirmationRequest = AccountCreateRequest
 
-  class AccountStoreModule[F[_]](implicit inj1: InjectK[AccountRepository, F], inj2: InjectK[ConfirmationTokenRepository, F]) {
+  class AccountStoreModule[F[_]](implicit inj1: InjectK[AccountRepository, F], inj2: InjectK[ConfirmationTokenRepository, F]) { module =>
     type Algebra[A] = F[A]
 
     val accounts: Accounts[F]                     = Accounts()
@@ -123,12 +124,17 @@ object AccountService {
     def apply() = new AccountStoreModule[Algebra]()
   }
 
-  object RegistrationModule {
+  object RegistrationModule { module =>
     type Algebra[A]   = EitherK[MailingRepository, AccountStoreModule.Algebra, A]
     type Operation[A] = Free[Algebra, A]
 
     val storage: AccountStoreModule[Algebra] = new AccountStoreModule[Algebra]()
     val mailing: Mailing[Algebra]            = Mailing()
+
+    object Par {
+      type Algebra[A]   = FreeApplicative[module.Algebra, A]
+      type Operation[A] = SeqPar[module.Algebra, A]
+    }
   }
 
   trait ConfirmationEmailEnv {

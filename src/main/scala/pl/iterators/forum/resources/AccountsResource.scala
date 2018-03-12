@@ -52,6 +52,7 @@ trait AccountsResource extends Resource with AccountsResource.AccountsProtocol w
   def confirmationLinkTemplate: String
 
   import cats.instances.future._
+  import pl.iterators.forum.utils.free.par._
 
   private def runLookupAccount(id: AccountId) = accountService.lookup(id) foldMap accountRepositoryInterpreter
   protected val lookupAccount: AccountId => Route = id =>

@@ -1,9 +1,10 @@
 package pl.iterators.forum.repositories
 
 import cats.InjectK
-import cats.free.Free
+import cats.free.{Free, FreeApplicative}
 import pl.iterators.forum.domain.{ConfirmationToken, Email, RefreshToken}
 import pl.iterators.forum.utils.free.syntax._
+import pl.iterators.forum.utils.free.par.syntax._
 
 import scala.language.higherKinds
 
@@ -39,6 +40,12 @@ object ConfirmationTokenRepository {
   class ConfirmationTokens[F[_]](implicit inj: InjectK[ConfirmationTokenRepository, F]) {
     def store(token: ConfirmationToken)    = Store(token).into[F]
     def query(email: Email, token: String) = Query(email, token).into[F]
+
+    class Par {
+      def store(token: ConfirmationToken): FreeApplicative[F, ConfirmationToken]            = Store(token).liftPar[F]
+      def query(email: Email, token: String): FreeApplicative[F, Option[ConfirmationToken]] = Query(email, token).liftPar[F]
+    }
+    def par = new Par()
   }
 
   object ConfirmationTokens {

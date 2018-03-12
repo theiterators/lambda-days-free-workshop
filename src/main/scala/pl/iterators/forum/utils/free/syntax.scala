@@ -1,8 +1,9 @@
 package pl.iterators.forum.utils.free
 
 import cats.data._
-import cats.free.Free
+import cats.free.{Free, FreeApplicative}
 import cats.{InjectK, ~>}
+import pl.iterators.forum.utils.free.par.SeqPar
 
 import scala.language.{higherKinds, implicitConversions}
 
@@ -35,6 +36,10 @@ final class FreeOps[S[_], A](val f: Free[S, A]) extends AnyVal {
     })
   def assume[Env]: ReaderT[Free[S, ?], Env, A] = ReaderT.liftF(f)
   def toEitherT[B]: EitherT[Free[S, ?], B, A]  = EitherT.liftF(f)
+  def liftPar: SeqPar[S, A] = {
+    val parCompiler = λ[S ~> FreeApplicative[S, ?]](FreeApplicative.lift(_))
+    f.compile(parCompiler)
+  }
 }
 
 final class AnyValOps[A](val a: A) extends AnyVal {

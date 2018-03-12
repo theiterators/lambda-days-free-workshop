@@ -4,6 +4,7 @@ import cats.InjectK
 import cats.free.Free
 import pl.iterators.forum.domain._
 import pl.iterators.forum.utils.crypto.Crypto.Password
+import pl.iterators.forum.utils.free.par.syntax._
 import pl.iterators.forum.utils.free.syntax._
 
 import scala.language.higherKinds
@@ -36,6 +37,14 @@ object AccountRepository {
     def queryConfirmed(email: Email)                            = QueryConfirmed(email).into[F]
     def store(email: Email, password: Password, admin: Boolean) = Store(email, password, admin).into[F]
     def setConfirmed(email: Email, nick: Nick)                  = SetConfirmed(email, nick).into[F]
+
+    class Par {
+      def queryEmail(email: Email)                                = QueryEmail(email).liftPar[F]
+      def queryConfirmed(email: Email)                            = QueryConfirmed(email).liftPar[F]
+      def store(email: Email, password: Password, admin: Boolean) = Store(email, password, admin).liftPar[F]
+      def setConfirmed(email: Email, nick: Nick)                  = SetConfirmed(email, nick).liftPar[F]
+    }
+    def par = new Par()
   }
 
   object Accounts {

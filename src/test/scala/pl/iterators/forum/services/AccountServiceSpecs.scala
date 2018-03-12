@@ -8,6 +8,7 @@ import pl.iterators.forum.domain._
 import pl.iterators.forum.fixtures._
 import pl.iterators.forum.services.AccountService._
 import pl.iterators.forum.utils.{Leave, Modify}
+import pl.iterators.forum.utils.free.par._
 
 class AccountServiceSpecs extends FunSpec with Matchers with EitherValues with LoneElement {
 
